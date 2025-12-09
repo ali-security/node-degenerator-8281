@@ -215,4 +215,103 @@ describe('degenerator()', () => {
 			});
 		});
 	});
+
+	describe('CVE-2021-23406', () => {
+		it('should not allow privilege escalation via constructor', async () => {
+			const fn = compile<() => Promise<string>>(
+				`function test() {
+					try {
+						const f = this.constructor.constructor('return process');
+						f();
+						return 'ESCAPED';
+					} catch(e) {
+						return 'SECURE';
+					}
+				}`,
+				'test',
+				[],
+				{ sandbox: {} }
+			);
+			const result = await fn();
+			assert.notEqual(result, 'ESCAPED', 'Sandbox escape should be prevented');
+		});
+
+		it('should not allow privilege escalation via __proto__', async () => {
+			const fn = compile<() => Promise<string>>(
+				`function test() {
+					try {
+						const f = ({}).__proto__.constructor.constructor('return process');
+						f();
+						return 'ESCAPED';
+					} catch(e) {
+						return 'SECURE';
+					}
+				}`,
+				'test',
+				[],
+				{ sandbox: {} }
+			);
+			const result = await fn();
+			assert.notEqual(result, 'ESCAPED', 'Sandbox escape should be prevented');
+		});
+
+		it('should not allow access via array prototype', async () => {
+			const fn = compile<() => Promise<string>>(
+				`function test() {
+					try {
+						const f = [].constructor.constructor('return process');
+						f();
+						return 'ESCAPED';
+					} catch(e) {
+						return 'SECURE';
+					}
+				}`,
+				'test',
+				[],
+				{ sandbox: {} }
+			);
+			const result = await fn();
+			assert.notEqual(result, 'ESCAPED', 'Sandbox escape should be prevented');
+		});
+
+		it('should not allow access via function prototype', async () => {
+			const fn = compile<() => Promise<string>>(
+				`function test() {
+					try {
+						const f = (function(){}).constructor('return process');
+						f();
+						return 'ESCAPED';
+					} catch(e) {
+						return 'SECURE';
+					}
+				}`,
+				'test',
+				[],
+				{ sandbox: {} }
+			);
+			const result = await fn();
+			assert.notEqual(result, 'ESCAPED', 'Sandbox escape should be prevented');
+		});
+
+		it('should not allow access via Object.getPrototypeOf', async () => {
+			const fn = compile<() => Promise<string>>(
+				`function test() {
+					try {
+						const proto = Object.getPrototypeOf({});
+						if (!proto) return 'SECURE';
+						const f = proto.constructor.constructor('return process');
+						f();
+						return 'ESCAPED';
+					} catch(e) {
+						return 'SECURE';
+					}
+				}`,
+				'test',
+				[],
+				{ sandbox: {} }
+			);
+			const result = await fn();
+			assert.notEqual(result, 'ESCAPED', 'Sandbox escape should be prevented');
+		});
+	});
 });

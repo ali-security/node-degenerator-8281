@@ -7,6 +7,42 @@ import { Context, RunningScriptOptions, runInNewContext } from 'vm';
 import _supportsAsync from './supports-async';
 import generatorToPromiseFn from './generator-to-promise';
 
+function createSecureSandbox(sandbox: Context): Context {
+	const DANGEROUS_PROPS = new Set(['constructor', '__proto__', 'prototype']);
+
+	function wrapValue(value: any): any {
+		if (value === null || value === undefined) return value;
+		if (typeof value !== 'object' && typeof value !== 'function') return value;
+
+		return new Proxy(value, {
+			get(target, prop, receiver) {
+				if (typeof prop === 'string' && DANGEROUS_PROPS.has(prop)) {
+					return undefined;
+				}
+				const result = Reflect.get(target, prop, receiver);
+				if (result !== null && (typeof result === 'object' || typeof result === 'function')) {
+					return wrapValue(result);
+				}
+				return result;
+			},
+			getPrototypeOf(target) {
+				return null;
+			},
+			setPrototypeOf(target, proto) {
+				return false;
+			}
+		});
+	}
+
+	const secure: Context = Object.create(null);
+
+	for (const key of Object.keys(sandbox)) {
+		secure[key] = wrapValue(sandbox[key]);
+	}
+
+	return secure;
+}
+
 /**
  * Compiles sync JavaScript code into JavaScript with async Functions.
  *
@@ -159,11 +195,13 @@ namespace degenerator {
 		names: DegeneratorNames,
 		options: CompileOptions = {}
 	): T {
+		const rawSandbox = options.sandbox || {};
+		const sandbox = createSecureSandbox(rawSandbox);
 		const output = _supportsAsync ? 'async' : 'generator';
 		const compiled = degenerator(code, names, { ...options, output });
 		const fn = runInNewContext(
 			`${compiled};${returnName}`,
-			options.sandbox,
+			sandbox,
 			options
 		);
 		if (typeof fn !== 'function') {
